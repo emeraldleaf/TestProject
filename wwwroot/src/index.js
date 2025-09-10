@@ -1,5 +1,5 @@
 // Main entry point - imports and initializes modules
-import { FileBrowserDialog } from './components/FileDialog/FileBrowserDialog.js';
+import { FileBrowserDialog } from './components/FileDialog/fileBrowserDialog.js';
 
 // CSS files are loaded via link tags in HTML for development
 // These imports are only used during build process

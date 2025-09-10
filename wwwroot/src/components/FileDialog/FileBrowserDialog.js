@@ -1,5 +1,5 @@
 // Main file browser dialog component that manages file operations and UI state
-import { DialogWidget } from './dialog.js';
+import { DialogWidget } from './fileDialogWidget.js';
 import { FileApiService } from './fileApiService.js';
 import { FileListRenderer } from './fileListRenderer.js';
 import { createFileBrowserTemplate } from './toolbarTemplate.js';
