@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>File Dialog Demo</title>
+    <style>
+        /* Base styles */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #005a8b;
+        }
+
+        /* Dialog styles */
+        .dialog-widget {
+            border: none;
+            width: 80%;
+            max-width: 1000px;
+            padding: 0;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .dialog-widget::backdrop {
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .dialog-content {
+            height: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .dialog-header {
+            padding: 10px 50px 10px 80px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+            position: relative;
+            flex-shrink: 0;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .dialog-home-button {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: 1px solid #999;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 4px 8px;
+            height: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+            border-radius: 3px;
+            background: white;
+        }
+
+        .dialog-close-button {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-weight: bold;
+        }
+
+        .dialog-home-button:hover {
+            background: #f0f0f0;
+        }
+
+        .dialog-close-button:hover {
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+        }
+
+        .dialog-body {
+            padding: 10px;
+            flex: 1;
+            overflow: hidden;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* File browser specific styles */
+        .file-browser-header {
+            flex-shrink: 0;
+            margin: -10px -10px 0 -10px;
+        }
+
+        .file-summary-top {
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+            font-size: 13px;
+            color: #6c757d;
+            font-weight: 500;
+        }
+
+        .file-toolbar {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            background: white;
+            padding: 3px;
+            border-bottom: 1px solid #eee;
+            flex-wrap: wrap;
+        }
+
+        .file-summary-toolbar {
+            margin-left: auto;
+            padding: 5px 10px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 3px;
+            font-size: 1px;
+            color: #6c757d;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .toolbar-button {
+            padding: 1px 5px;
+            border: 1px solid #ccc;
+            background: #f8f9fa;
+            color: #333;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 12px;
+            font-family: inherit;
+        }
+
+        .toolbar-button:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 5px 10px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 13px;
+            background: white;
+            color: #333;
+            font-family: inherit;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
+
+        .search-scope-controls {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .file-upload-input {
+            display: none;
+        }
+
+        .file-content {
+            flex: 1;
+            overflow: auto;
+            min-height: 0;
+            margin: 0 -10px -10px -10px;
+        }
+
+        .file-list {
+            padding: 10px;
+        }
+
+        .file-row {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s;
+        }
+
+        .file-row:hover {
+            background: #f8f9fa;
+        }
+
+        .file-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        .file-name {
+            display: flex;
+            align-items: center;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-name svg {
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+
+        .file-size {
+            font-size: 12px;
+            color: #6c757d;
+            white-space: nowrap;
+            margin-left: 12px;
+        }
+
+        .file-row[data-is-directory="true"] .file-name {
+            font-weight: 500;
+        }
+
+        .file-row[data-is-directory="true"] svg {
+            color: #ffc107;
+        }
+
+        .file-row[data-is-directory="false"] svg {
+            color: #6c757d;
+        }
+
+        .no-files {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .error-message {
+            color: #dc3545;
+            padding: 8px 12px;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>File Dialog UI Demo</h1>
+
+    <!-- File Dialog Template - Always Visible -->
+    <div class="dialog-widget" id="file-dialog" style="position: relative; margin: 20px auto; display: block;">
+        <div class="dialog-content">
+            <div class="dialog-header">
+                <button class="dialog-home-button" type="button" onclick="navigateHome()">Home</button>
+                File Browser
+            </div>
+            <div class="dialog-body">
+                <div class="file-browser-header">
+                    <div id="file-summary" class="file-summary-top">12 items (8 files, 4 folders) • 2.3 MB</div>
+                    <div class="file-toolbar">
+                        <button onclick="navigateUp()" class="toolbar-button">↑ Up</button>
+                        <input type="text" id="search-input" placeholder="Search files..." class="search-input">
+                        <div class="search-scope-controls">
+                            <label><input type="radio" name="search-scope" value="current" checked> Search This directory</label>
+                            <label><input type="radio" name="search-scope" value="subdirs"> Include subdirectories</label>
+                        </div>
+                    </div>
+                    <div class="file-toolbar">
+                        <button onclick="searchFiles()" class="toolbar-button">Search</button>
+                        <button onclick="clearSearch()" class="toolbar-button">Clear</button>
+                        <input type="file" id="file-upload" class="file-upload-input" onchange="uploadFile()">
+                        <button onclick="document.getElementById('file-upload').click()" class="toolbar-button">Upload</button>
+                        <button onclick="downloadSelected()" class="toolbar-button">Download</button>
+                        <button onclick="copySelected()" class="toolbar-button">Copy</button>
+                        <button onclick="moveSelected()" class="toolbar-button">Move</button>
+                    </div>
+                </div>
+                <div id="file-browser-content" class="file-content">
+                    <div class="file-list">
+                        <!-- Sample file entries -->
+                        <div class="file-row" data-is-directory="true" data-path="/Users/sample/Documents">
+                            <div class="file-info">
+                                <div class="file-name">
+                                    <svg width="16" height="16" viewBox="0 0 16 16">
+                                        <path fill="currentColor" d="M1.75 2A1.75 1.75 0 0 0 0 3.75v8.5A1.75 1.75 0 0 0 1.75 14h12.5A1.75 1.75 0 0 0 16 12.25v-6.5A1.75 1.75 0 0 0 14.25 4H7.811L6.31 2.5A1.75 1.75 0 0 0 5.07 2H1.75Z"/>
+                                    </svg>
+                                    Documents
+                                </div>
+                            </div>
+                        </div>
+                        <div class="file-row" data-is-directory="true" data-path="/Users/sample/Downloads">
+                            <div class="file-info">
+                                <div class="file-name">
+                                    <svg width="16" height="16" viewBox="0 0 16 16">
+                                        <path fill="currentColor" d="M1.75 2A1.75 1.75 0 0 0 0 3.75v8.5A1.75 1.75 0 0 0 1.75 14h12.5A1.75 1.75 0 0 0 16 12.25v-6.5A1.75 1.75 0 0 0 14.25 4H7.811L6.31 2.5A1.75 1.75 0 0 0 5.07 2H1.75Z"/>
+                                    </svg>
+                                    Downloads
+                                </div>
+                            </div>
+                        </div>
+                        <div class="file-row" data-is-directory="false" data-path="/Users/sample/report.pdf">
+                            <div class="file-info">
+                                <div class="file-name">
+                                    <svg width="16" height="16" viewBox="0 0 16 16">
+                                        <path fill="currentColor" d="M3.75 1A1.75 1.75 0 0 0 2 2.75v10.5A1.75 1.75 0 0 0 3.75 15h8.5A1.75 1.75 0 0 0 14 13.25V5.5L9.5 1H3.75Z"/>
+                                    </svg>
+                                    report.pdf
+                                </div>
+                                <div class="file-size">1.2 MB</div>
+                            </div>
+                        </div>
+                        <div class="file-row" data-is-directory="false" data-path="/Users/sample/notes.txt">
+                            <div class="file-info">
+                                <div class="file-name">
+                                    <svg width="16" height="16" viewBox="0 0 16 16">
+                                        <path fill="currentColor" d="M3.75 1A1.75 1.75 0 0 0 2 2.75v10.5A1.75 1.75 0 0 0 3.75 15h8.5A1.75 1.75 0 0 0 14 13.25V5.5L9.5 1H3.75Z"/>
+                                    </svg>
+                                    notes.txt
+                                </div>
+                                <div class="file-size">3.2 KB</div>
+                            </div>
+                        </div>
+                        <div class="file-row" data-is-directory="false" data-path="/Users/sample/image.jpg">
+                            <div class="file-info">
+                                <div class="file-name">
+                                    <svg width="16" height="16" viewBox="0 0 16 16">
+                                        <path fill="currentColor" d="M3.75 1A1.75 1.75 0 0 0 2 2.75v10.5A1.75 1.75 0 0 0 3.75 15h8.5A1.75 1.75 0 0 0 14 13.25V5.5L9.5 1H3.75Z"/>
+                                    </svg>
+                                    image.jpg
+                                </div>
+                                <div class="file-size">856 KB</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <script>
+
+        function navigateHome() {
+            alert('Navigate to home directory');
+        }
+
+        function navigateUp() {
+            alert('Navigate to parent directory');
+        }
+
+        function searchFiles() {
+            const term = document.getElementById('search-input').value;
+            alert(`Searching for: ${term}`);
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            alert('Search cleared');
+        }
+
+        function uploadFile() {
+            alert('Upload file functionality');
+        }
+
+        function downloadSelected() {
+            alert('Download selected file');
+        }
+
+        function copySelected() {
+            alert('Copy selected file');
+        }
+
+        function moveSelected() {
+            alert('Move selected file');
+        }
+
+        // Add click handlers for file rows
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileRows = document.querySelectorAll('.file-row');
+            fileRows.forEach(row => {
+                row.addEventListener('click', function() {
+                    // Clear previous selection
+                    fileRows.forEach(r => r.style.backgroundColor = '');
+                    // Highlight selected row
+                    this.style.backgroundColor = '#e3f2fd';
+                    
+                    const isDirectory = this.dataset.isDirectory === 'true';
+                    const path = this.dataset.path;
+                    
+                    if (isDirectory) {
+                        console.log('Navigate to directory:', path);
+                    } else {
+                        console.log('Select file:', path);
+                    }
+                });
+                
+                // Double-click to download files
+                if (row.dataset.isDirectory === 'false') {
+                    row.addEventListener('dblclick', function() {
+                        alert(`Download: ${this.dataset.path}`);
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
