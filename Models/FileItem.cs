@@ -1,5 +1,7 @@
 namespace TestProject.Models;
-
+ /* Use records for immutable data with value 
+  semantics instead of classes with reference 
+  semantics*/
 public record FileItem(
     string Name,
     string Path,
