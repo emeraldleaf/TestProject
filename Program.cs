@@ -1,3 +1,4 @@
+// ASP.NET Core application entry point with secure file management configuration
 using TestProject;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -7,7 +8,7 @@ builder.Services.ConfigureApplicationServices(builder.Configuration);
 
 var app = builder.Build();
 
-// Use the secure pipeline configuration first
+// Configure security middleware and request pipeline
 app.ConfigureSecurePipeline();
 
 // Configure development-specific middleware after pipeline
@@ -23,7 +24,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-// Ensure HTML files are never cached (applies to all environments)
+// Prevent HTML caching for development hot-reload
 app.Use(async (context, next) =>
 {
     await next();

@@ -1,3 +1,4 @@
+// Template for the file browser toolbar and content area
 export function createFileBrowserTemplate() {
     return `
         <div class="file-browser-header">

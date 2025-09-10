@@ -1,5 +1,4 @@
-// Reusable Dialog Widget Component
-
+// Reusable modal dialog widget with header, body, and footer sections
 // CSS is loaded via link tags in HTML head
 
 export class DialogWidget {
@@ -14,6 +13,7 @@ export class DialogWidget {
         this.dialog = null;
     }
     
+    // Create and configure the dialog DOM element
     create() {
         if (this.dialog) return this.dialog;
         
@@ -47,17 +47,20 @@ export class DialogWidget {
         return this.dialog;
     }
     
+    // Open the dialog as a modal
     open() {
         if (!this.dialog) this.create();
         this.dialog.showModal();
     }
     
+    // Close the dialog and trigger onClose callback
     close() {
         if (!this.dialog) return;
         this.dialog.close();
         if (this.options.onClose) this.options.onClose();
     }
     
+    // Trigger the home button callback
     home() {
         if (this.options.onHome) this.options.onHome();
     }
@@ -67,6 +70,7 @@ export class DialogWidget {
         return this.dialog?.open || false;
     }
     
+    // Update the dialog body content dynamically
     updateContent(content) {
         const bodyEl = this.dialog?.querySelector('.dialog-body');
         if (bodyEl) bodyEl.innerHTML = content;
@@ -78,6 +82,7 @@ export class DialogWidget {
     dialog is reused. But if we added more
     dialog types or dynamic dialogs, it would
     prevent DOM bloat and memory leaks. */
+    // Remove dialog from DOM and clean up references
     destroy() {
         if (this.dialog) {
             this.dialog.remove();

@@ -1,14 +1,17 @@
+// Renders file listings with proper HTML escaping and formatting
 export class FileListRenderer {
     constructor() {
         this.eventHandlers = {};
     }
     
+    // Escape HTML characters to prevent XSS
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
     
+    // Format file size in human-readable units
     formatFileSize(bytes) {
         if (bytes === 0) return '0 B';
         const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -16,6 +19,7 @@ export class FileListRenderer {
         return Math.round(bytes / Math.pow(1024, i) * 10) / 10 + ' ' + sizes[i];
     }
     
+    // Render the complete file listing with icons and metadata
     renderFileList(files) {
         if (!files || files.length === 0) {
             return '<div class="no-files">No files found</div>';
@@ -38,10 +42,12 @@ export class FileListRenderer {
         return `<div class="file-list">${rows}</div>`;
     }
     
+    // Render error message with proper escaping
     renderError(message) {
         return `<div class="error-message">Error: ${this.escapeHtml(message || 'Unknown error occurred')}</div>`;
     }
     
+    // Render loading state during search operations
     renderSearching() {
         return `
             <div class="searching-message" style="text-align: center; padding: 20px; color: #666;">
@@ -51,6 +57,7 @@ export class FileListRenderer {
         `;
     }
     
+    // Attach click handlers to file list container
     attachEventListeners(container) {
         container.addEventListener('click', (e) => {
             const row = e.target.closest('.file-row');

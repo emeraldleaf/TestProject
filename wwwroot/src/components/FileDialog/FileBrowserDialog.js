@@ -1,3 +1,4 @@
+// Main file browser dialog component that manages file operations and UI state
 import { DialogWidget } from './dialog.js';
 import { FileApiService } from './fileApiService.js';
 import { FileListRenderer } from './fileListRenderer.js';
@@ -36,6 +37,7 @@ export class FileBrowserDialog {
         this.setupEventDelegation();
     }
     
+    // Set up event delegation for toolbar actions and file operations
     setupEventDelegation() {
         document.addEventListener('click', async (e) => {
             if (!this.isOpen) return;
@@ -65,6 +67,7 @@ export class FileBrowserDialog {
         });
     }
     
+    // Configure Enter key handling for search input
     setupSearchInputHandler() {
         const searchInput = document.getElementById('search-input');
         if (searchInput) {
@@ -79,6 +82,7 @@ export class FileBrowserDialog {
         }
     }
     
+    // Open the dialog and load initial file listing
     async open(initialPath = null) {
         this.dialog.open();
         await this.loadFiles(initialPath);
@@ -93,6 +97,7 @@ export class FileBrowserDialog {
         return this.dialog.isOpen;
     }
     
+    // Load and display files for the specified directory
     async loadFiles(directoryPath = null) {
         const contentDiv = document.getElementById('file-browser-content');
         if (!contentDiv) return;
@@ -117,6 +122,7 @@ export class FileBrowserDialog {
         }
     }
     
+    // Update the file count and size summary display
     updateFileSummary(files, message = null) {
         const summaryElement = document.getElementById('file-summary');
         if (!summaryElement) return;
@@ -139,6 +145,7 @@ export class FileBrowserDialog {
         summaryElement.textContent = `${files.length} items (${fileCount} files, ${folderCount} folders)${sizeText}`;
     }
     
+    // Format file size in human-readable units
     formatSize(bytes) {
         if (bytes === 0) return '0 B';
         const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -146,6 +153,7 @@ export class FileBrowserDialog {
         return Math.round(bytes / Math.pow(1024, i) * 10) / 10 + ' ' + sizes[i];
     }
     
+    // Add click handlers for file selection and navigation
     addFileClickHandlers(contentDiv) {
         const rows = contentDiv.querySelectorAll('.file-row');
         rows.forEach(row => {
@@ -174,6 +182,7 @@ export class FileBrowserDialog {
         return new URLSearchParams(window.location.search).get(name);
     }
     
+    // Update browser URL for deep linking support
     updateUrl(path) {
         const url = new URL(window.location);
         if (path) {
@@ -184,6 +193,7 @@ export class FileBrowserDialog {
         window.history.pushState({}, '', url);
     }
     
+    // Perform file search with current term and scope settings
     async search() {
         const searchInput = document.getElementById('search-input');
         const searchTerm = searchInput.value.trim();
@@ -220,6 +230,7 @@ export class FileBrowserDialog {
         this.setupSearchInputHandler();
     }
     
+    // Handle file upload to current directory
     async upload() {
         const fileInput = document.getElementById('file-upload');
         const file = fileInput.files[0];
@@ -295,6 +306,7 @@ export class FileBrowserDialog {
         }
     }
     
+    // Configure browser navigation and URL handling
     setupBrowserIntegration() {
         window.addEventListener('popstate', async () => {
             if (this.isOpen) {

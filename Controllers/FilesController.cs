@@ -5,6 +5,7 @@ using TestProject.Security;
 
 namespace TestProject.Controllers;
 
+// REST API controller for secure file system operations
 [ApiController]
 [Route("api/[controller]")]
 public class FilesController : ControllerBase
@@ -26,6 +27,7 @@ public class FilesController : ControllerBase
         _securityOptions = securityOptions.Value;
     }
 
+    // Get files and directories for the specified path
     [HttpGet]
     public async Task<IActionResult> GetFiles([FromQuery] string? path = null)
     {
@@ -59,6 +61,7 @@ public class FilesController : ControllerBase
         }
     }
 
+    // Return the configured default/base path
     [HttpGet("defaultpath")]
     public IActionResult GetDefaultPath()
     {
@@ -73,6 +76,7 @@ public class FilesController : ControllerBase
         }
     }
 
+    // Search for files matching the given term
     [HttpGet("search")]
     public async Task<IActionResult> SearchFiles([FromQuery] string? path, [FromQuery] string? term, [FromQuery] bool includeSubdirectories = true)
     {
@@ -109,6 +113,7 @@ public class FilesController : ControllerBase
         }
     }
 
+    // Download a file as binary stream
     [HttpGet("download")]
     public async Task<IActionResult> DownloadFile([FromQuery] string? path)
     {
@@ -147,6 +152,7 @@ public class FilesController : ControllerBase
         }
     }
 
+    // Upload a file to the specified directory
     [HttpPost("upload")]
     public async Task<IActionResult> UploadFile([FromForm] IFormFile? file, [FromQuery] string? path)
     {
@@ -206,6 +212,7 @@ public class FilesController : ControllerBase
         }
     }
 
+    // Copy a file from source to destination
     [HttpPost("copy")]
     public async Task<IActionResult> CopyFile([FromQuery] string? sourcePath, [FromQuery] string? destinationPath)
     {
@@ -249,6 +256,7 @@ public class FilesController : ControllerBase
         }
     }
 
+    // Move a file from source to destination
     [HttpPost("move")]
     public async Task<IActionResult> MoveFile([FromQuery] string? sourcePath, [FromQuery] string? destinationPath)
     {

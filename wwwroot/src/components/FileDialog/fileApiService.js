@@ -1,3 +1,4 @@
+// Service class for communicating with the file management REST API
 export class FileApiService {
     constructor() {
         // Use .NET API server when running on separate port
@@ -5,6 +6,7 @@ export class FileApiService {
         this.cachedDefaultPath = null;
     }
     
+    // Get the server's configured default/base path
     async getDefaultPath() {
         if (this.cachedDefaultPath) {
             return this.cachedDefaultPath;
@@ -26,6 +28,7 @@ export class FileApiService {
         return this.cachedDefaultPath;
     }
     
+    // Fetch files and directories for the specified path
     async getFiles(directoryPath = null) {
         try {
             // Get default path from server if none provided
@@ -45,6 +48,7 @@ export class FileApiService {
         }
     }
 
+    // Search for files matching the term in the specified directory
     async searchFiles(directoryPath, searchTerm, includeSubdirectories = true) {
         try {
             const url = `${this.baseUrl}/api/files/search?path=${encodeURIComponent(directoryPath)}&term=${encodeURIComponent(searchTerm)}&includeSubdirectories=${includeSubdirectories}`;
@@ -61,11 +65,13 @@ export class FileApiService {
         }
     }
 
+    // Initiate file download by opening in new tab
     downloadFile(filePath) {
         const url = `${this.baseUrl}/api/files/download?path=${encodeURIComponent(filePath)}`;
         window.open(url, '_blank');
     }
 
+    // Upload a file to the specified directory
     async uploadFile(directoryPath, file) {
         try {
             const formData = new FormData();
@@ -88,6 +94,7 @@ export class FileApiService {
         }
     }
 
+    // Copy a file from source to destination path
     async copyFile(sourcePath, destinationPath) {
         try {
             const url = `${this.baseUrl}/api/files/copy?sourcePath=${encodeURIComponent(sourcePath)}&destinationPath=${encodeURIComponent(destinationPath)}`;
@@ -106,6 +113,7 @@ export class FileApiService {
         }
     }
 
+    // Move a file from source to destination path
     async moveFile(sourcePath, destinationPath) {
         try {
             const url = `${this.baseUrl}/api/files/move?sourcePath=${encodeURIComponent(sourcePath)}&destinationPath=${encodeURIComponent(destinationPath)}`;

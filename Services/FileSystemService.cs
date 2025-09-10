@@ -2,8 +2,10 @@ using TestProject.Models;
 
 namespace TestProject.Services;
 
+// File system implementation of IFileService with security validation
 public class FileSystemService : IFileService
 {
+    // Get all files and directories in the specified path
     public async Task<FileListResponse> GetFilesAsync(string directoryPath)
     {
         try
@@ -18,18 +20,6 @@ public class FileSystemService : IFileService
                 );
             }
 
-            // Get all files and directories in the path
-            // var allPaths = Directory.GetFileSystemEntries(directoryPath);
-            
-            // Convert each path to a FileItem with metadata
-            // var fileItems = new List<FileItem>();
-            // foreach (var path in allPaths)
-            // {
-            //     var fileItem = CreateFileItem(path);
-            //     fileItems.Add(fileItem);
-            // }
-
-            // More efficient approach using DirectoryInfo
             var directoryInfo = new DirectoryInfo(directoryPath);
             var files = directoryInfo.GetFileSystemInfos()
                 .Select(info => new FileItem(
@@ -67,20 +57,7 @@ public class FileSystemService : IFileService
         }
     }
 
-    private static FileItem CreateFileItem(string path)
-    {
-        var info = new FileInfo(path);
-        bool isDirectory = Directory.Exists(path);
-
-        return new FileItem(
-            Name: Path.GetFileName(path),
-            Path: path,
-            Size: isDirectory ? 0 : info.Length,
-            LastModified: info.LastWriteTime,
-            IsDirectory: isDirectory
-        );
-    }
-
+    // Calculate directory depth for search result ordering
     private static int GetDirectoryDepth(string filePath, string rootPath)
     {
         try
@@ -100,6 +77,7 @@ public class FileSystemService : IFileService
         }
     }
 
+    // Create FileItem for search results with relative path display
     private static FileItem CreateSearchFileItem(string path, string searchRoot)
     {
         var info = new FileInfo(path);
@@ -120,6 +98,7 @@ public class FileSystemService : IFileService
         );
     }
 
+    // Optimized FileItem creation for search results
     private static FileItem CreateSearchFileItemOptimized(string path, string searchRoot, bool isDirectory)
     {
         // Show relative path from search root for better context in search results
@@ -161,6 +140,7 @@ public class FileSystemService : IFileService
         return await SearchFilesAsync(directoryPath, searchTerm, maxResults, true);
     }
 
+    // Search for files matching the term with configurable depth and limits
     public async Task<FileListResponse> SearchFilesAsync(string directoryPath, string searchTerm, int maxResults, bool includeSubdirectories)
     {
         try
@@ -311,6 +291,7 @@ public class FileSystemService : IFileService
         }
     }
 
+    // Read file contents as byte array for download
     public async Task<byte[]> DownloadFileAsync(string filePath)
     {
         if (!File.Exists(filePath))
@@ -319,6 +300,7 @@ public class FileSystemService : IFileService
         return await File.ReadAllBytesAsync(filePath);
     }
 
+    // Write uploaded file content to the file system
     public async Task<bool> UploadFileAsync(string directoryPath, string fileName, byte[] content)
     {
         try
@@ -336,6 +318,7 @@ public class FileSystemService : IFileService
         }
     }
 
+    // Copy file from source to destination path
     public async Task<bool> CopyFileAsync(string sourcePath, string destinationPath)
     {
         try
@@ -356,6 +339,7 @@ public class FileSystemService : IFileService
         }
     }
 
+    // Move file from source to destination path
     public async Task<bool> MoveFileAsync(string sourcePath, string destinationPath)
     {
         try
