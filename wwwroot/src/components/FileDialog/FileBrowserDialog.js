@@ -257,7 +257,20 @@ export class FileBrowserDialog {
         const pathParts = this.currentPath.split(/[/\\]/).filter(part => part);
         if (pathParts.length <= 1) return;
         
-        const parentPath = '/' + pathParts.slice(0, -1).join('/');
+        // Handle cross-platform path construction
+        let parentPath;
+        const remainingParts = pathParts.slice(0, -1);
+        
+        // Check if this is a Windows absolute path (has drive letter like "C:")
+        const isWindowsPath = remainingParts.length > 0 && remainingParts[0].match(/^[A-Za-z]:$/);
+        
+        if (isWindowsPath) {
+            // Windows: construct path without leading slash
+            parentPath = remainingParts.join('/');
+        } else {
+            // Unix/Mac: add leading slash
+            parentPath = '/' + remainingParts.join('/');
+        }
         await this.loadFiles(parentPath);
     }
     
