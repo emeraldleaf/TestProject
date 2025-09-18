@@ -77,27 +77,7 @@ public class FileSystemService : IFileService
         }
     }
 
-    // Create FileItem for search results with relative path display
-    private static FileItem CreateSearchFileItem(string path, string searchRoot)
-    {
-        var info = new FileInfo(path);
-        bool isDirectory = Directory.Exists(path);
-        
-        // Show relative path from search root for better context in search results
-        var relativePath = Path.GetRelativePath(searchRoot, path);
-        var displayName = relativePath == Path.GetFileName(path) 
-            ? Path.GetFileName(path)  // If in root directory, just show filename
-            : relativePath;           // If in subdirectory, show relative path
-
-        return new FileItem(
-            Name: displayName,
-            Path: path,
-            Size: isDirectory ? 0 : info.Length,
-            LastModified: info.LastWriteTime,
-            IsDirectory: isDirectory
-        );
-    }
-
+    
     // Optimized FileItem creation for search results
     private static FileItem CreateSearchFileItemOptimized(string path, string searchRoot, bool isDirectory)
     {
@@ -128,16 +108,6 @@ public class FileSystemService : IFileService
                 IsDirectory: false
             );
         }
-    }
-
-    public async Task<FileListResponse> SearchFilesAsync(string directoryPath, string searchTerm)
-    {
-        return await SearchFilesAsync(directoryPath, searchTerm, 10000, true);
-    }
-
-    public async Task<FileListResponse> SearchFilesAsync(string directoryPath, string searchTerm, int maxResults)
-    {
-        return await SearchFilesAsync(directoryPath, searchTerm, maxResults, true);
     }
 
     // Search for files matching the term with configurable depth and limits

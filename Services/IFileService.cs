@@ -7,8 +7,6 @@ public interface IFileService
 {
     // Get files and directories in the specified path
     Task<FileListResponse> GetFilesAsync(string directoryPath);
-    Task<FileListResponse> SearchFilesAsync(string directoryPath, string searchTerm);
-    Task<FileListResponse> SearchFilesAsync(string directoryPath, string searchTerm, int maxResults);
     Task<FileListResponse> SearchFilesAsync(string directoryPath, string searchTerm, int maxResults, bool includeSubdirectories);
     // Download file as byte array
     Task<byte[]> DownloadFileAsync(string filePath);
