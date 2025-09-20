@@ -12,6 +12,7 @@ public class FilesController : ControllerBase
 {
     private readonly IFileService _fileService;
     private readonly ISecurityValidationService _securityService;
+    private readonly IIdempotencyService _idempotencyService;
     private readonly ILogger<FilesController> _logger;
     private readonly SecurityOptions _securityOptions;
 
@@ -21,13 +22,15 @@ public class FilesController : ControllerBase
     private static string? _cachedDefaultPath;
 
     public FilesController(
-        IFileService fileService, 
+        IFileService fileService,
         ISecurityValidationService securityService,
+        IIdempotencyService idempotencyService,
         ILogger<FilesController> logger,
         IOptions<SecurityOptions> securityOptions)
     {
         _fileService = fileService;
         _securityService = securityService;
+        _idempotencyService = idempotencyService;
         _logger = logger;
         _securityOptions = securityOptions.Value;
     }
@@ -180,8 +183,22 @@ public class FilesController : ControllerBase
 
     // Upload a file to the specified directory
     [HttpPost("upload")]
-    public async Task<IActionResult> UploadFile([FromForm] IFormFile? file, [FromQuery] string? path)
+    public async Task<IActionResult> UploadFile(
+        [FromForm] IFormFile? file,
+        [FromQuery] string? path,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey = null)
     {
+        // Check for idempotency - return cached result if operation already performed
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            var cachedResult = await _idempotencyService.GetCachedResultAsync(idempotencyKey);
+            if (cachedResult != null)
+            {
+                _logger.LogInformation("Returning cached upload result for idempotency key: {Key}", idempotencyKey);
+                return cachedResult;
+            }
+        }
+
         // Validate file upload
         var fileValidation = _securityService.ValidateFileUpload(file!, file?.FileName ?? "");
         if (!fileValidation.IsValid)
@@ -214,16 +231,32 @@ public class FilesController : ControllerBase
             
             if (success)
             {
-                return Ok(new { 
-                    Success = true, 
+                var result = Ok(new {
+                    Success = true,
                     FileName = sanitizedFileName,
                     Size = fileValidation.FileSize,
-                    Message = "File uploaded successfully" 
+                    Message = "File uploaded successfully"
                 });
+
+                // Cache the successful result for idempotency
+                if (!string.IsNullOrEmpty(idempotencyKey))
+                {
+                    await _idempotencyService.StoreCachedResultAsync(idempotencyKey, result);
+                }
+
+                return result;
             }
             else
             {
-                return BadRequest(new { Success = false, ErrorMessage = "Upload failed" });
+                var result = BadRequest(new { Success = false, ErrorMessage = "Upload failed" });
+
+                // Cache failed results too to prevent retries of the same operation
+                if (!string.IsNullOrEmpty(idempotencyKey))
+                {
+                    await _idempotencyService.StoreCachedResultAsync(idempotencyKey, result, TimeSpan.FromMinutes(5));
+                }
+
+                return result;
             }
         }
         catch (UnauthorizedAccessException)
@@ -240,8 +273,22 @@ public class FilesController : ControllerBase
 
     // Copy a file from source to destination
     [HttpPost("copy")]
-    public async Task<IActionResult> CopyFile([FromQuery] string? sourcePath, [FromQuery] string? destinationPath)
+    public async Task<IActionResult> CopyFile(
+        [FromQuery] string? sourcePath,
+        [FromQuery] string? destinationPath,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey = null)
     {
+        // Check for idempotency
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            var cachedResult = await _idempotencyService.GetCachedResultAsync(idempotencyKey);
+            if (cachedResult != null)
+            {
+                _logger.LogInformation("Returning cached copy result for idempotency key: {Key}", idempotencyKey);
+                return cachedResult;
+            }
+        }
+
         // Validate source path
         var sourceValidation = _securityService.ValidateAndSanitizePath(sourcePath);
         if (!sourceValidation.IsValid)
@@ -266,9 +313,19 @@ public class FilesController : ControllerBase
             _logger.LogInformation("Copying file from {Source} to {Destination}", source, destination);
             
             var success = await _fileService.CopyFileAsync(source, destination);
-            return success 
+
+            var result = success
                 ? Ok(new { Success = true, Message = "File copied successfully" })
                 : BadRequest(new { Success = false, ErrorMessage = "Copy failed" });
+
+            // Cache the result for idempotency
+            if (!string.IsNullOrEmpty(idempotencyKey))
+            {
+                var cacheExpiry = success ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(5);
+                await _idempotencyService.StoreCachedResultAsync(idempotencyKey, result, cacheExpiry);
+            }
+
+            return result;
         }
         catch (UnauthorizedAccessException)
         {
@@ -284,8 +341,22 @@ public class FilesController : ControllerBase
 
     // Move a file from source to destination
     [HttpPost("move")]
-    public async Task<IActionResult> MoveFile([FromQuery] string? sourcePath, [FromQuery] string? destinationPath)
+    public async Task<IActionResult> MoveFile(
+        [FromQuery] string? sourcePath,
+        [FromQuery] string? destinationPath,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey = null)
     {
+        // Check for idempotency
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            var cachedResult = await _idempotencyService.GetCachedResultAsync(idempotencyKey);
+            if (cachedResult != null)
+            {
+                _logger.LogInformation("Returning cached move result for idempotency key: {Key}", idempotencyKey);
+                return cachedResult;
+            }
+        }
+
         // Validate source path
         var sourceValidation = _securityService.ValidateAndSanitizePath(sourcePath);
         if (!sourceValidation.IsValid)
@@ -310,9 +381,19 @@ public class FilesController : ControllerBase
             _logger.LogInformation("Moving file from {Source} to {Destination}", source, destination);
             
             var success = await _fileService.MoveFileAsync(source, destination);
-            return success 
+
+            var result = success
                 ? Ok(new { Success = true, Message = "File moved successfully" })
                 : BadRequest(new { Success = false, ErrorMessage = "Move failed" });
+
+            // Cache the result for idempotency
+            if (!string.IsNullOrEmpty(idempotencyKey))
+            {
+                var cacheExpiry = success ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(5);
+                await _idempotencyService.StoreCachedResultAsync(idempotencyKey, result, cacheExpiry);
+            }
+
+            return result;
         }
         catch (UnauthorizedAccessException)
         {

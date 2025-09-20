@@ -8,6 +8,8 @@ export class FileApiService {
     private cacheExpiration: Map<string, number> = new Map();
     private cacheConfig: Record<string, CacheConfig>;
     private cachedDefaultPath: string | null = null;
+    private invalidationQueue = new Set<string>();
+    private invalidationTimers = new Map<string, number>();
 
     constructor() {
         // Use .NET API server when running on separate port
@@ -129,8 +131,33 @@ export class FileApiService {
         });
     }
 
-    // Cache invalidation methods
+    // Cache invalidation methods with debouncing
     invalidateCache(pattern: string): void {
+        // Prevent duplicate invalidations for the same pattern
+        if (this.invalidationQueue.has(pattern)) {
+            return;
+        }
+
+        this.invalidationQueue.add(pattern);
+
+        // Clear existing timer if one exists
+        const existingTimer = this.invalidationTimers.get(pattern);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+
+        // Debounce invalidation to prevent excessive cache clearing
+        const timer = window.setTimeout(() => {
+            this.performCacheInvalidation(pattern);
+            this.invalidationQueue.delete(pattern);
+            this.invalidationTimers.delete(pattern);
+        }, 100);
+
+        this.invalidationTimers.set(pattern, timer);
+    }
+
+    // Perform the actual cache invalidation
+    private performCacheInvalidation(pattern: string): void {
         const keysToDelete: string[] = [];
         for (const key of this.cache.keys()) {
             if (key.includes(pattern)) {
@@ -231,8 +258,12 @@ export class FileApiService {
         window.open(url, '_blank');
     }
 
-    // Upload a file to the specified directory with cache invalidation
-    async uploadFile(directoryPath: string, file: File): Promise<any> {
+    // Upload a file to the specified directory with cache invalidation and idempotency
+    async uploadFile(directoryPath: string, file: File, idempotencyKey?: string): Promise<any> {
+        // Create idempotency key based on file characteristics and destination
+        const key = idempotencyKey || `upload:${directoryPath}:${file.name}:${file.size}:${file.lastModified}`;
+
+        return this.withRequestDeduplication(key, async () => {
         try {
             const formData = new FormData();
             formData.append('file', file);
@@ -257,10 +288,15 @@ export class FileApiService {
         } catch (error) {
             throw new Error(`Error uploading file: ${(error as Error).message}`);
         }
+        });
     }
 
-    // Copy a file from source to destination path with cache invalidation
-    async copyFile(sourcePath: string, destinationPath: string): Promise<any> {
+    // Copy a file from source to destination path with cache invalidation and idempotency
+    async copyFile(sourcePath: string, destinationPath: string, idempotencyKey?: string): Promise<any> {
+        // Create idempotency key based on source and destination paths
+        const key = idempotencyKey || `copy:${sourcePath}:${destinationPath}`;
+
+        return this.withRequestDeduplication(key, async () => {
         try {
             const url = `${this.baseUrl}/api/files/copy?sourcePath=${encodeURIComponent(sourcePath)}&destinationPath=${encodeURIComponent(destinationPath)}`;
             const response = await fetch(url, {
@@ -282,10 +318,15 @@ export class FileApiService {
         } catch (error) {
             throw new Error(`Error copying file: ${(error as Error).message}`);
         }
+        });
     }
 
-    // Move a file from source to destination path with cache invalidation
-    async moveFile(sourcePath: string, destinationPath: string): Promise<any> {
+    // Move a file from source to destination path with cache invalidation and idempotency
+    async moveFile(sourcePath: string, destinationPath: string, idempotencyKey?: string): Promise<any> {
+        // Create idempotency key based on source and destination paths
+        const key = idempotencyKey || `move:${sourcePath}:${destinationPath}`;
+
+        return this.withRequestDeduplication(key, async () => {
         try {
             const url = `${this.baseUrl}/api/files/move?sourcePath=${encodeURIComponent(sourcePath)}&destinationPath=${encodeURIComponent(destinationPath)}`;
             const response = await fetch(url, {
@@ -312,29 +353,40 @@ export class FileApiService {
         } catch (error) {
             throw new Error(`Error moving file: ${(error as Error).message}`);
         }
+        });
     }
 
     // Additional utility methods for advanced usage
 
-    // Force refresh a specific directory's cache
-    async refreshDirectory(directoryPath: string | null): Promise<FileListResponse> {
-        if (directoryPath) {
-            this.invalidateCache(`fileList:*path:${directoryPath}`);
-        }
-        return this.getFiles(directoryPath);
+    // Force refresh a specific directory's cache with idempotency
+    async refreshDirectory(directoryPath: string | null, idempotencyKey?: string): Promise<FileListResponse> {
+        // Create idempotency key for refresh operations
+        const key = idempotencyKey || `refresh:${directoryPath || 'default'}:${Date.now()}`;
+
+        return this.withRequestDeduplication(key, async () => {
+            if (directoryPath) {
+                this.invalidateCache(`fileList:*path:${directoryPath}`);
+            }
+            return this.getFiles(directoryPath);
+        });
     }
 
-    // Preload a directory for faster navigation
-    async preloadDirectory(directoryPath: string | null): Promise<void> {
-        // Use a short-lived cache just for preloading
-        const tempConfig = this.cacheConfig.fileList;
-        this.cacheConfig.fileList = { ttl: 5 * 60 * 1000 }; // 5 minutes for preload
+    // Preload a directory for faster navigation with idempotency
+    async preloadDirectory(directoryPath: string | null, idempotencyKey?: string): Promise<void> {
+        // Create idempotency key for preload operations
+        const key = idempotencyKey || `preload:${directoryPath || 'default'}`;
 
-        try {
-            await this.getFiles(directoryPath);
-        } finally {
-            this.cacheConfig.fileList = tempConfig;
-        }
+        return this.withRequestDeduplication(key, async () => {
+            // Use a short-lived cache just for preloading
+            const tempConfig = this.cacheConfig.fileList;
+            this.cacheConfig.fileList = { ttl: 5 * 60 * 1000 }; // 5 minutes for preload
+
+            try {
+                await this.getFiles(directoryPath);
+            } finally {
+                this.cacheConfig.fileList = tempConfig;
+            }
+        });
     }
 
     // Get performance metrics for monitoring

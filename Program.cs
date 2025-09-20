@@ -21,6 +21,7 @@ using (var scope = app.Services.CreateScope())
     // the application will fail fast during startup rather than at runtime
     var _ = scope.ServiceProvider.GetRequiredService<IFileService>();
     var __ = scope.ServiceProvider.GetRequiredService<ISecurityValidationService>();
+    var ___ = scope.ServiceProvider.GetRequiredService<IIdempotencyService>();
 
     // Note: This pattern is especially important for services with complex dependency graphs
     // or when using factory patterns that might hide DI configuration errors

@@ -30,6 +30,10 @@ public static class ProgramExtensions
 
         // Register application services
         services.AddScoped<IFileService, FileSystemService>();
+
+        // Register idempotency service
+        services.AddSingleton<IIdempotencyService, IdempotencyService>();
+        services.AddMemoryCache();
         
         // Add controllers
         services.AddControllers();

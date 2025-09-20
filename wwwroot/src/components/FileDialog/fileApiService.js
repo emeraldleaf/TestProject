@@ -8,6 +8,8 @@ export class FileApiService {
         this.cache = new Map();
         this.pendingRequests = new Map(); // Request deduplication
         this.cacheExpiration = new Map();
+        this.invalidationQueue = new Set();
+        this.invalidationTimers = new Map();
 
         // Cache configuration
         this.cacheConfig = {
@@ -128,8 +130,33 @@ export class FileApiService {
         });
     }
 
-    // Cache invalidation methods
+    // Cache invalidation methods with debouncing
     invalidateCache(pattern) {
+        // Prevent duplicate invalidations for the same pattern
+        if (this.invalidationQueue.has(pattern)) {
+            return;
+        }
+
+        this.invalidationQueue.add(pattern);
+
+        // Clear existing timer if one exists
+        const existingTimer = this.invalidationTimers.get(pattern);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+
+        // Debounce invalidation to prevent excessive cache clearing
+        const timer = setTimeout(() => {
+            this.performCacheInvalidation(pattern);
+            this.invalidationQueue.delete(pattern);
+            this.invalidationTimers.delete(pattern);
+        }, 100);
+
+        this.invalidationTimers.set(pattern, timer);
+    }
+
+    // Perform the actual cache invalidation
+    performCacheInvalidation(pattern) {
         const keysToDelete = [];
         for (const key of this.cache.keys()) {
             if (key.includes(pattern)) {
@@ -230,8 +257,12 @@ export class FileApiService {
         window.open(url, '_blank');
     }
 
-    // Upload a file to the specified directory with cache invalidation
-    async uploadFile(directoryPath, file) {
+    // Upload a file to the specified directory with cache invalidation and idempotency
+    async uploadFile(directoryPath, file, idempotencyKey) {
+        // Create idempotency key based on file characteristics and destination
+        const key = idempotencyKey || `upload:${directoryPath}:${file.name}:${file.size}:${file.lastModified}`;
+
+        return this.withRequestDeduplication(key, async () => {
         try {
             const formData = new FormData();
             formData.append('file', file);
@@ -254,10 +285,15 @@ export class FileApiService {
         } catch (error) {
             throw new Error(`Error uploading file: ${error.message}`);
         }
+        });
     }
 
-    // Copy a file from source to destination path with cache invalidation
-    async copyFile(sourcePath, destinationPath) {
+    // Copy a file from source to destination path with cache invalidation and idempotency
+    async copyFile(sourcePath, destinationPath, idempotencyKey) {
+        // Create idempotency key based on source and destination paths
+        const key = idempotencyKey || `copy:${sourcePath}:${destinationPath}`;
+
+        return this.withRequestDeduplication(key, async () => {
         try {
             const url = `${this.baseUrl}/api/files/copy?sourcePath=${encodeURIComponent(sourcePath)}&destinationPath=${encodeURIComponent(destinationPath)}`;
             const response = await fetch(url, {
@@ -279,10 +315,15 @@ export class FileApiService {
         } catch (error) {
             throw new Error(`Error copying file: ${error.message}`);
         }
+        });
     }
 
-    // Move a file from source to destination path with cache invalidation
-    async moveFile(sourcePath, destinationPath) {
+    // Move a file from source to destination path with cache invalidation and idempotency
+    async moveFile(sourcePath, destinationPath, idempotencyKey) {
+        // Create idempotency key based on source and destination paths
+        const key = idempotencyKey || `move:${sourcePath}:${destinationPath}`;
+
+        return this.withRequestDeduplication(key, async () => {
         try {
             const url = `${this.baseUrl}/api/files/move?sourcePath=${encodeURIComponent(sourcePath)}&destinationPath=${encodeURIComponent(destinationPath)}`;
             const response = await fetch(url, {
@@ -309,27 +350,38 @@ export class FileApiService {
         } catch (error) {
             throw new Error(`Error moving file: ${error.message}`);
         }
+        });
     }
 
     // Additional utility methods for advanced usage
 
-    // Force refresh a specific directory's cache
-    async refreshDirectory(directoryPath) {
-        this.invalidateCache(`fileList:*path:${directoryPath}`);
-        return this.getFiles(directoryPath);
+    // Force refresh a specific directory's cache with idempotency
+    async refreshDirectory(directoryPath, idempotencyKey) {
+        // Create idempotency key for refresh operations
+        const key = idempotencyKey || `refresh:${directoryPath || 'default'}:${Date.now()}`;
+
+        return this.withRequestDeduplication(key, async () => {
+            this.invalidateCache(`fileList:*path:${directoryPath}`);
+            return this.getFiles(directoryPath);
+        });
     }
 
-    // Preload a directory for faster navigation
-    async preloadDirectory(directoryPath) {
-        // Use a short-lived cache just for preloading
-        const tempConfig = this.cacheConfig.fileList;
-        this.cacheConfig.fileList = { ttl: 5 * 60 * 1000 }; // 5 minutes for preload
+    // Preload a directory for faster navigation with idempotency
+    async preloadDirectory(directoryPath, idempotencyKey) {
+        // Create idempotency key for preload operations
+        const key = idempotencyKey || `preload:${directoryPath || 'default'}`;
 
-        try {
-            await this.getFiles(directoryPath);
-        } finally {
-            this.cacheConfig.fileList = tempConfig;
-        }
+        return this.withRequestDeduplication(key, async () => {
+            // Use a short-lived cache just for preloading
+            const tempConfig = this.cacheConfig.fileList;
+            this.cacheConfig.fileList = { ttl: 5 * 60 * 1000 }; // 5 minutes for preload
+
+            try {
+                await this.getFiles(directoryPath);
+            } finally {
+                this.cacheConfig.fileList = tempConfig;
+            }
+        });
     }
 
     // Get performance metrics for monitoring
