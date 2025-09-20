@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Server.IISIntegration;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using TestProject.Security;
 using TestProject.Services;
+using TestProject.Abstractions;
+using TestProject.Adapters;
 
 namespace TestProject;
 
@@ -22,7 +24,10 @@ public static class ProgramExtensions
 
         // Register security services
         services.AddSingleton<ISecurityValidationService, SecurityValidationService>();
-        
+
+        // Register file system abstraction
+        services.AddScoped<IFileSystemAdapter, PhysicalFileSystemAdapter>();
+
         // Register application services
         services.AddScoped<IFileService, FileSystemService>();
         

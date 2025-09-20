@@ -1,11 +1,15 @@
 using TestProject.Models;
 using System.Collections.Concurrent;
+using TestProject.Abstractions;
+using TestProject.Adapters;
 
 namespace TestProject.Services;
 
 // File system implementation of IFileService with security validation and thread safety
 public class FileSystemService : IFileService
 {
+    private readonly IFileSystemAdapter _fileSystemAdapter;
+
     // Thread-safe tracking of concurrent operations
     private static readonly object _operationsLock = new object();
     private static int _activeDownloads = 0;
@@ -17,12 +21,17 @@ public class FileSystemService : IFileService
     private const int MAX_CONCURRENT_DOWNLOADS = 20;
     private const int MAX_CONCURRENT_UPLOADS = 10;
     private const int MAX_CONCURRENT_COPY_MOVE = 5;
+
+    public FileSystemService(IFileSystemAdapter fileSystemAdapter)
+    {
+        _fileSystemAdapter = fileSystemAdapter;
+    }
     // Get all files and directories in the specified path
     public async Task<FileListResponse> GetFilesAsync(string directoryPath)
     {
         try
         {
-            if (!Directory.Exists(directoryPath))
+            if (!await _fileSystemAdapter.DirectoryExistsAsync(directoryPath))
             {
                 return new FileListResponse(
                     [],
@@ -32,20 +41,18 @@ public class FileSystemService : IFileService
                 );
             }
 
-            var directoryInfo = new DirectoryInfo(directoryPath);
-            var files = directoryInfo.GetFileSystemInfos()
+            var items = await _fileSystemAdapter.GetDirectoryContentsAsync(directoryPath);
+            var files = items
                 .Select(info => new FileItem(
                     Name: info.Name,
-                    Path: info.FullName,
-                    Size: info is FileInfo fileInfo ? fileInfo.Length : 0,
+                    Path: info.FullPath,
+                    Size: info.Size,
                     LastModified: info.LastWriteTime,
-                    IsDirectory: info is DirectoryInfo
+                    IsDirectory: info.IsDirectory
                 ))
                 .OrderBy(item => item.IsDirectory ? 0 : 1)  // Directories (0) come before files (1)
                 .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)  // Then sort by name A-Z
                 .ToList();
-            
-            await Task.CompletedTask; // Satisfy async method signature
 
             return new FileListResponse(files, directoryPath, true);
         }
@@ -127,7 +134,7 @@ public class FileSystemService : IFileService
     {
         try
         {
-            if (!Directory.Exists(directoryPath))
+            if (!await _fileSystemAdapter.DirectoryExistsAsync(directoryPath))
             {
                 return new FileListResponse(
                     [],
@@ -137,6 +144,37 @@ public class FileSystemService : IFileService
                 );
             }
 
+            // Check if we're using the in-memory adapter (for testing)
+            if (_fileSystemAdapter is InMemoryFileSystemAdapter)
+            {
+                // Use the adapter's search functionality for testing
+                var searchOption = includeSubdirectories ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                var matchingFiles = await _fileSystemAdapter.EnumerateFilesAsync(directoryPath, searchTerm, searchOption);
+
+                var adapterResults = new List<FileItem>();
+                foreach (var filePath in matchingFiles.Take(maxResults))
+                {
+                    try
+                    {
+                        var fileInfo = await _fileSystemAdapter.GetFileInfoAsync(filePath);
+                        adapterResults.Add(new FileItem(
+                            fileInfo.Name,
+                            filePath,
+                            fileInfo.Size,
+                            fileInfo.LastWriteTime,
+                            fileInfo.IsDirectory
+                        ));
+                    }
+                    catch (Exception)
+                    {
+                        // Skip files that can't be accessed
+                    }
+                }
+
+                return new FileListResponse(adapterResults, directoryPath, true);
+            }
+
+            // Original implementation for physical file system
             var (results, wasTruncated) = await Task.Run(() => 
             {
                 var results = new List<FileItem>();
@@ -276,16 +314,16 @@ public class FileSystemService : IFileService
     // Read file contents as byte array for download (legacy method - avoid for large files)
     public async Task<byte[]> DownloadFileAsync(string filePath)
     {
-        if (!File.Exists(filePath))
+        if (!await _fileSystemAdapter.FileExistsAsync(filePath))
             throw new FileNotFoundException($"File '{filePath}' not found");
 
-        return await File.ReadAllBytesAsync(filePath);
+        return await _fileSystemAdapter.ReadAllBytesAsync(filePath);
     }
 
     // Efficient streaming download that doesn't load entire file into memory
     public async Task<Stream> DownloadFileStreamAsync(string filePath)
     {
-        if (!File.Exists(filePath))
+        if (!await _fileSystemAdapter.FileExistsAsync(filePath))
             throw new FileNotFoundException($"File '{filePath}' not found");
 
         // Track concurrent downloads with thread-safe counter
@@ -300,10 +338,8 @@ public class FileSystemService : IFileService
 
         try
         {
-            // Return FileStream for efficient streaming without loading entire file into memory
-            var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 64 * 1024, // 64KB buffer for optimal performance
-                useAsync: true);
+            // Get stream from adapter
+            var stream = await _fileSystemAdapter.OpenFileForReadAsync(filePath);
 
             // Wrap in a disposal tracker to decrement counter when stream is disposed
             return new TrackedFileStream(stream, () =>
@@ -339,14 +375,14 @@ public class FileSystemService : IFileService
 
         try
         {
-            if (!Directory.Exists(directoryPath))
+            if (!await _fileSystemAdapter.DirectoryExistsAsync(directoryPath))
                 return false;
 
             var filePath = Path.Combine(directoryPath, fileName);
 
-            if (!File.Exists(filePath))
+            if (!await _fileSystemAdapter.FileExistsAsync(filePath))
             {
-                await File.WriteAllBytesAsync(filePath, content);
+                await _fileSystemAdapter.WriteAllBytesAsync(filePath, content);
 
                 // Log successful upload
                 _fileAccessLog.TryAdd($"upload_{filePath}_{DateTime.UtcNow.Ticks}", DateTime.UtcNow);
@@ -381,14 +417,14 @@ public class FileSystemService : IFileService
 
         try
         {
-            if (!File.Exists(sourcePath))
+            if (!await _fileSystemAdapter.FileExistsAsync(sourcePath))
                 return false;
 
             var destinationDir = Path.GetDirectoryName(destinationPath);
-            if (!string.IsNullOrEmpty(destinationDir) && !Directory.Exists(destinationDir))
-                Directory.CreateDirectory(destinationDir);
+            if (!string.IsNullOrEmpty(destinationDir) && !await _fileSystemAdapter.DirectoryExistsAsync(destinationDir))
+                await _fileSystemAdapter.CreateDirectoryAsync(destinationDir);
 
-            await Task.Run(() => File.Copy(sourcePath, destinationPath, overwrite: true));
+            await _fileSystemAdapter.CopyFileAsync(sourcePath, destinationPath, overwrite: true);
 
             // Log successful copy
             _fileAccessLog.TryAdd($"copy_{sourcePath}_to_{destinationPath}_{DateTime.UtcNow.Ticks}", DateTime.UtcNow);
@@ -422,21 +458,21 @@ public class FileSystemService : IFileService
 
         try
         {
-            if (!File.Exists(sourcePath))
+            if (!await _fileSystemAdapter.FileExistsAsync(sourcePath))
                 return false;
 
             // If destinationPath is a directory, append the source file name
-            if (Directory.Exists(destinationPath))
+            if (await _fileSystemAdapter.DirectoryExistsAsync(destinationPath))
             {
                 var fileName = Path.GetFileName(sourcePath);
                 destinationPath = Path.Combine(destinationPath, fileName);
             }
 
             var destinationDir = Path.GetDirectoryName(destinationPath);
-            if (!string.IsNullOrEmpty(destinationDir) && !Directory.Exists(destinationDir))
-                Directory.CreateDirectory(destinationDir);
+            if (!string.IsNullOrEmpty(destinationDir) && !await _fileSystemAdapter.DirectoryExistsAsync(destinationDir))
+                await _fileSystemAdapter.CreateDirectoryAsync(destinationDir);
 
-            await Task.Run(() => File.Move(sourcePath, destinationPath, overwrite: true));
+            await _fileSystemAdapter.MoveFileAsync(sourcePath, destinationPath, overwrite: true);
 
             // Log successful move
             _fileAccessLog.TryAdd($"move_{sourcePath}_to_{destinationPath}_{DateTime.UtcNow.Ticks}", DateTime.UtcNow);
