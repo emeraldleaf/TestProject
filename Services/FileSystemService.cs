@@ -1,10 +1,22 @@
 using TestProject.Models;
+using System.Collections.Concurrent;
 
 namespace TestProject.Services;
 
-// File system implementation of IFileService with security validation
+// File system implementation of IFileService with security validation and thread safety
 public class FileSystemService : IFileService
 {
+    // Thread-safe tracking of concurrent operations
+    private static readonly object _operationsLock = new object();
+    private static int _activeDownloads = 0;
+    private static int _activeUploads = 0;
+    private static int _activeCopyMoveOperations = 0;
+    private static readonly ConcurrentDictionary<string, DateTime> _fileAccessLog = new();
+
+    // Configuration for concurrent operation limits
+    private const int MAX_CONCURRENT_DOWNLOADS = 20;
+    private const int MAX_CONCURRENT_UPLOADS = 10;
+    private const int MAX_CONCURRENT_COPY_MOVE = 5;
     // Get all files and directories in the specified path
     public async Task<FileListResponse> GetFilesAsync(string directoryPath)
     {
@@ -261,57 +273,153 @@ public class FileSystemService : IFileService
         }
     }
 
-    // Read file contents as byte array for download
+    // Read file contents as byte array for download (legacy method - avoid for large files)
     public async Task<byte[]> DownloadFileAsync(string filePath)
     {
         if (!File.Exists(filePath))
             throw new FileNotFoundException($"File '{filePath}' not found");
-        
+
         return await File.ReadAllBytesAsync(filePath);
     }
 
-    // Write uploaded file content to the file system
+    // Efficient streaming download that doesn't load entire file into memory
+    public async Task<Stream> DownloadFileStreamAsync(string filePath)
+    {
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException($"File '{filePath}' not found");
+
+        // Track concurrent downloads with thread-safe counter
+        lock (_operationsLock)
+        {
+            if (_activeDownloads >= MAX_CONCURRENT_DOWNLOADS)
+                throw new InvalidOperationException("Too many concurrent downloads. Please try again later.");
+
+            _activeDownloads++;
+            _fileAccessLog.TryAdd($"download_{filePath}_{DateTime.UtcNow.Ticks}", DateTime.UtcNow);
+        }
+
+        try
+        {
+            // Return FileStream for efficient streaming without loading entire file into memory
+            var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 64 * 1024, // 64KB buffer for optimal performance
+                useAsync: true);
+
+            // Wrap in a disposal tracker to decrement counter when stream is disposed
+            return new TrackedFileStream(stream, () =>
+            {
+                lock (_operationsLock)
+                {
+                    _activeDownloads--;
+                }
+            });
+        }
+        catch
+        {
+            // Decrement counter if stream creation fails
+            lock (_operationsLock)
+            {
+                _activeDownloads--;
+            }
+            throw;
+        }
+    }
+
+    // Write uploaded file content to the file system with concurrency control
     public async Task<bool> UploadFileAsync(string directoryPath, string fileName, byte[] content)
     {
+        // Check concurrent upload limit
+        lock (_operationsLock)
+        {
+            if (_activeUploads >= MAX_CONCURRENT_UPLOADS)
+                return false; // Too many concurrent uploads
+
+            _activeUploads++;
+        }
+
         try
         {
             if (!Directory.Exists(directoryPath))
                 return false;
-            
+
             var filePath = Path.Combine(directoryPath, fileName);
-            await File.WriteAllBytesAsync(filePath, content);
+
+            if (!File.Exists(filePath))
+            {
+                await File.WriteAllBytesAsync(filePath, content);
+
+                // Log successful upload
+                _fileAccessLog.TryAdd($"upload_{filePath}_{DateTime.UtcNow.Ticks}", DateTime.UtcNow);
+            }
             return true;
         }
         catch
         {
             return false;
         }
+        finally
+        {
+            // Always decrement the counter
+            lock (_operationsLock)
+            {
+                _activeUploads--;
+            }
+        }
     }
 
-    // Copy file from source to destination path
+    // Copy file from source to destination path with concurrency control
     public async Task<bool> CopyFileAsync(string sourcePath, string destinationPath)
     {
+        // Check concurrent copy/move operation limit
+        lock (_operationsLock)
+        {
+            if (_activeCopyMoveOperations >= MAX_CONCURRENT_COPY_MOVE)
+                return false; // Too many concurrent copy/move operations
+
+            _activeCopyMoveOperations++;
+        }
+
         try
         {
             if (!File.Exists(sourcePath))
                 return false;
-                
+
             var destinationDir = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrEmpty(destinationDir) && !Directory.Exists(destinationDir))
                 Directory.CreateDirectory(destinationDir);
-                
+
             await Task.Run(() => File.Copy(sourcePath, destinationPath, overwrite: true));
+
+            // Log successful copy
+            _fileAccessLog.TryAdd($"copy_{sourcePath}_to_{destinationPath}_{DateTime.UtcNow.Ticks}", DateTime.UtcNow);
             return true;
         }
         catch
         {
             return false;
         }
+        finally
+        {
+            // Always decrement the counter
+            lock (_operationsLock)
+            {
+                _activeCopyMoveOperations--;
+            }
+        }
     }
 
-    // Move file from source to destination path
+    // Move file from source to destination path with concurrency control
     public async Task<bool> MoveFileAsync(string sourcePath, string destinationPath)
     {
+        // Check concurrent copy/move operation limit
+        lock (_operationsLock)
+        {
+            if (_activeCopyMoveOperations >= MAX_CONCURRENT_COPY_MOVE)
+                return false; // Too many concurrent copy/move operations
+
+            _activeCopyMoveOperations++;
+        }
+
         try
         {
             if (!File.Exists(sourcePath))
@@ -323,17 +431,107 @@ public class FileSystemService : IFileService
                 var fileName = Path.GetFileName(sourcePath);
                 destinationPath = Path.Combine(destinationPath, fileName);
             }
-                
+
             var destinationDir = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrEmpty(destinationDir) && !Directory.Exists(destinationDir))
                 Directory.CreateDirectory(destinationDir);
-                
+
             await Task.Run(() => File.Move(sourcePath, destinationPath, overwrite: true));
+
+            // Log successful move
+            _fileAccessLog.TryAdd($"move_{sourcePath}_to_{destinationPath}_{DateTime.UtcNow.Ticks}", DateTime.UtcNow);
             return true;
         }
         catch
         {
             return false;
         }
+        finally
+        {
+            // Always decrement the counter
+            lock (_operationsLock)
+            {
+                _activeCopyMoveOperations--;
+            }
+        }
+    }
+
+    // Get current operation statistics (useful for monitoring)
+    public (int Downloads, int Uploads, int CopyMoveOps) GetActiveOperationCounts()
+    {
+        lock (_operationsLock)
+        {
+            return (_activeDownloads, _activeUploads, _activeCopyMoveOperations);
+        }
+    }
+
+    // Clean up old access log entries (call periodically to prevent memory leaks)
+    public void CleanupAccessLog(TimeSpan olderThan)
+    {
+        var cutoff = DateTime.UtcNow - olderThan;
+        var keysToRemove = _fileAccessLog
+            .Where(kvp => kvp.Value < cutoff)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var key in keysToRemove)
+        {
+            _fileAccessLog.TryRemove(key, out _);
+        }
+    }
+}
+
+// Wrapper stream that tracks when the file stream is disposed to decrement counters
+public class TrackedFileStream : Stream
+{
+    private readonly Stream _innerStream;
+    private readonly Action _onDispose;
+    private bool _disposed = false;
+
+    public TrackedFileStream(Stream innerStream, Action onDispose)
+    {
+        _innerStream = innerStream;
+        _onDispose = onDispose;
+    }
+
+    public override bool CanRead => _innerStream.CanRead;
+    public override bool CanSeek => _innerStream.CanSeek;
+    public override bool CanWrite => _innerStream.CanWrite;
+    public override long Length => _innerStream.Length;
+    public override long Position
+    {
+        get => _innerStream.Position;
+        set => _innerStream.Position = value;
+    }
+
+    public override void Flush() => _innerStream.Flush();
+    public override Task FlushAsync(CancellationToken cancellationToken) => _innerStream.FlushAsync(cancellationToken);
+    public override int Read(byte[] buffer, int offset, int count) => _innerStream.Read(buffer, offset, count);
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => _innerStream.ReadAsync(buffer, offset, count, cancellationToken);
+    public override long Seek(long offset, SeekOrigin origin) => _innerStream.Seek(offset, origin);
+    public override void SetLength(long value) => _innerStream.SetLength(value);
+    public override void Write(byte[] buffer, int offset, int count) => _innerStream.Write(buffer, offset, count);
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => _innerStream.WriteAsync(buffer, offset, count, cancellationToken);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (!_disposed && disposing)
+        {
+            _innerStream.Dispose();
+            _onDispose();
+            _disposed = true;
+        }
+        base.Dispose(disposing);
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            await _innerStream.DisposeAsync();
+            _onDispose();
+            _disposed = true;
+        }
+        await base.DisposeAsync();
     }
 }

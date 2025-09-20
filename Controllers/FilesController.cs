@@ -15,6 +15,11 @@ public class FilesController : ControllerBase
     private readonly ILogger<FilesController> _logger;
     private readonly SecurityOptions _securityOptions;
 
+    // Static cache for default path response (thread-safe since it's read-only after initialization)
+    private static readonly object _defaultPathCacheLock = new object();
+    private static object? _cachedDefaultPathResponse;
+    private static string? _cachedDefaultPath;
+
     public FilesController(
         IFileService fileService, 
         ISecurityValidationService securityService,
@@ -40,12 +45,12 @@ public class FilesController : ControllerBase
                 _logger.LogWarning("Invalid path provided: {Path}, Error: {Error}", path, pathValidation.ErrorMessage);
                 return BadRequest(new { Success = false, ErrorMessage = pathValidation.ErrorMessage });
             }
-            
+
             var directoryPath = pathValidation.SanitizedPath!;
             _logger.LogInformation("Getting files for directory: {DirectoryPath}", directoryPath);
-            
+
             var response = await _fileService.GetFilesAsync(directoryPath);
-            
+
             if (!response.Success)
             {
                 _logger.LogWarning("Failed to get files: {ErrorMessage}", response.ErrorMessage);
@@ -61,13 +66,33 @@ public class FilesController : ControllerBase
         }
     }
 
-    // Return the configured default/base path
+    // Return the configured default/base path with aggressive caching for high-volume scenarios
     [HttpGet("defaultpath")]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any, VaryByHeader = "User-Agent")]
     public IActionResult GetDefaultPath()
     {
         try
         {
-            return Ok(new { defaultPath = _securityOptions.AllowedBasePath });
+            // Use static cache to avoid repeated object allocation for identical responses
+            if (_cachedDefaultPathResponse == null || _cachedDefaultPath != _securityOptions.AllowedBasePath)
+            {
+                lock (_defaultPathCacheLock)
+                {
+                    // Double-check pattern to avoid race conditions
+                    if (_cachedDefaultPathResponse == null || _cachedDefaultPath != _securityOptions.AllowedBasePath)
+                    {
+                        _cachedDefaultPath = _securityOptions.AllowedBasePath;
+                        _cachedDefaultPathResponse = new { defaultPath = _securityOptions.AllowedBasePath };
+                    }
+                }
+            }
+
+            // Set aggressive cache headers for maximum efficiency (use indexer to avoid duplicates)
+            Response.Headers["Cache-Control"] = "public, max-age=3600, immutable";
+            Response.Headers["ETag"] = $"\"{_securityOptions.AllowedBasePath.GetHashCode()}\"";
+            Response.Headers["Vary"] = "Accept-Encoding";
+
+            return Ok(_cachedDefaultPathResponse);
         }
         catch (Exception ex)
         {
@@ -129,11 +154,12 @@ public class FilesController : ControllerBase
         {
             var filePath = pathValidation.SanitizedPath!;
             _logger.LogInformation("Downloading file: {FilePath}", filePath);
-            
-            var content = await _fileService.DownloadFileAsync(filePath);
+
+            // Use streaming download for better memory efficiency
+            var stream = await _fileService.DownloadFileStreamAsync(filePath);
             var fileName = Path.GetFileName(filePath);
-            
-            return File(content, "application/octet-stream", fileName);
+
+            return File(stream, "application/octet-stream", fileName);
         }
         catch (FileNotFoundException)
         {

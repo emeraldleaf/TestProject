@@ -29,6 +29,18 @@ public class SecurityMiddleware
     {
         // Get client IP for rate limiting
         var clientIp = GetClientIpAddress(context);
+
+        //Ensures security checks work regardless of case variations
+        // Attackers might try case variations to evade detection:
+        /*ToLower()
+        Uses the current culture (locale-specific rules)
+        Results can vary based on the server's regional settings
+        Can produce different outputs for the same input on different machines
+        ToLowerInvariant()
+        Uses the invariant culture (consistent, culture-neutral rules)
+        Always produces the same result regardless of server locale
+        Based on English/ASCII rules*/
+        
         var path = context.Request.Path.Value?.ToLowerInvariant();
         
         // Apply rate limiting for file operations

@@ -14,8 +14,14 @@ public class SecurityValidationService : ISecurityValidationService
 {
     private readonly SecurityOptions _options;
     private readonly ILogger<SecurityValidationService> _logger;
-    
+
     // Rate limiting storage - in production, use Redis or distributed cache
+    
+    /*
+    Reference is immutable: The field cannot be reassigned after initialization
+    Object contents are mutable: You can still modify the dictionary's contents (add/remove entries)
+    Thread-safe operations: The ConcurrentDictionary itself provides thread-safe add/remove operations
+    */
     private readonly ConcurrentDictionary<string, List<DateTime>> _rateLimitTracker = new();
     
     // Dangerous file extensions and patterns
