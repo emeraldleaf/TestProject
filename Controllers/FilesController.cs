@@ -314,7 +314,7 @@ public class FilesController : ControllerBase
             
             var success = await _fileService.CopyFileAsync(source, destination);
 
-            var result = success
+            IActionResult result = success
                 ? Ok(new { Success = true, Message = "File copied successfully" })
                 : BadRequest(new { Success = false, ErrorMessage = "Copy failed" });
 
@@ -382,7 +382,7 @@ public class FilesController : ControllerBase
             
             var success = await _fileService.MoveFileAsync(source, destination);
 
-            var result = success
+            IActionResult result = success
                 ? Ok(new { Success = true, Message = "File moved successfully" })
                 : BadRequest(new { Success = false, ErrorMessage = "Move failed" });
 

@@ -23,11 +23,11 @@ public class IdempotencyService : IIdempotencyService
         _logger = logger;
     }
 
-    public async Task<IActionResult?> GetCachedResultAsync(string idempotencyKey)
+    public Task<IActionResult?> GetCachedResultAsync(string idempotencyKey)
     {
         if (!IsValidKey(idempotencyKey))
         {
-            return null;
+            return Task.FromResult<IActionResult?>(null);
         }
 
         var cacheKey = CACHE_PREFIX + idempotencyKey;
@@ -38,19 +38,19 @@ public class IdempotencyService : IIdempotencyService
 
             if (cachedData is IdempotencyResult result)
             {
-                return DeserializeResult(result);
+                return Task.FromResult<IActionResult?>(DeserializeResult(result));
             }
         }
 
-        return null;
+        return Task.FromResult<IActionResult?>(null);
     }
 
-    public async Task StoreCachedResultAsync(string idempotencyKey, IActionResult result, TimeSpan? expiry = null)
+    public Task StoreCachedResultAsync(string idempotencyKey, IActionResult result, TimeSpan? expiry = null)
     {
         if (!IsValidKey(idempotencyKey))
         {
             _logger.LogWarning("Attempted to store result with invalid idempotency key: {Key}", idempotencyKey);
-            return;
+            return Task.CompletedTask;
         }
 
         var cacheKey = CACHE_PREFIX + idempotencyKey;
@@ -66,6 +66,8 @@ public class IdempotencyService : IIdempotencyService
 
         _logger.LogInformation("Stored idempotency result for key: {Key}, expires in: {Expiry}",
             idempotencyKey, expiryTime);
+
+        return Task.CompletedTask;
     }
 
     public string GenerateKey(string operation, params object[] parameters)
