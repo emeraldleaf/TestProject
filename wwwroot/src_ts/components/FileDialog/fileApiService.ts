@@ -1,15 +1,19 @@
+import { FileListResponse, SearchResponse, CacheConfig, CacheStats, PerformanceMetrics } from '../../types';
+
 // Service class for communicating with the file management REST API with advanced client-side caching
 export class FileApiService {
+    private baseUrl: string;
+    private cache: Map<string, any> = new Map();
+    private pendingRequests: Map<string, Promise<any>> = new Map();
+    private cacheExpiration: Map<string, number> = new Map();
+    private cacheConfig: Record<string, CacheConfig>;
+    private cachedDefaultPath: string | null = null;
+    private invalidationQueue = new Set<string>();
+    private invalidationTimers = new Map<string, number>();
+
     constructor() {
         // Use .NET API server when running on separate port
         this.baseUrl = window.location.port === '3000' ? 'http://localhost:5120' : '';
-
-        // Advanced caching system
-        this.cache = new Map();
-        this.pendingRequests = new Map(); // Request deduplication
-        this.cacheExpiration = new Map();
-        this.invalidationQueue = new Set();
-        this.invalidationTimers = new Map();
 
         // Cache configuration
         this.cacheConfig = {
@@ -17,13 +21,10 @@ export class FileApiService {
             fileList: { ttl: 30 * 1000 }, // 30 seconds
             search: { ttl: 60 * 1000 }, // 1 minute
         };
-
-        // Legacy support
-        this.cachedDefaultPath = null;
     }
 
     // Advanced caching helper methods
-    getCacheKey(type, params = {}) {
+    getCacheKey(type: string, params: Record<string, any> = {}): string {
         const paramString = Object.entries(params)
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([k, v]) => `${k}:${v}`)
@@ -31,17 +32,17 @@ export class FileApiService {
         return `${type}:${paramString}`;
     }
 
-    isExpired(key) {
+    isExpired(key: string): boolean {
         const expiration = this.cacheExpiration.get(key);
         return !expiration || Date.now() > expiration;
     }
 
-    setCacheItem(key, data, ttl) {
+    setCacheItem(key: string, data: any, ttl: number): void {
         this.cache.set(key, data);
         this.cacheExpiration.set(key, Date.now() + ttl);
     }
 
-    getCacheItem(key) {
+    getCacheItem(key: string): any | null {
         if (this.isExpired(key)) {
             this.cache.delete(key);
             this.cacheExpiration.delete(key);
@@ -51,10 +52,10 @@ export class FileApiService {
     }
 
     // Request deduplication - prevents multiple identical concurrent requests
-    async withRequestDeduplication(key, requestFn) {
+    async withRequestDeduplication<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
         // If there's already a pending request for this key, return that promise
         if (this.pendingRequests.has(key)) {
-            return this.pendingRequests.get(key);
+            return this.pendingRequests.get(key) as Promise<T>;
         }
 
         // Create new request and store the promise
@@ -68,7 +69,7 @@ export class FileApiService {
     }
 
     // Enhanced fetch with caching and HTTP cache header support
-    async cachedFetch(url, cacheType, cacheParams = {}, options = {}) {
+    async cachedFetch(url: string, cacheType: string, cacheParams: Record<string, any> = {}, options: RequestInit = {}): Promise<any> {
         const cacheKey = this.getCacheKey(cacheType, { url, ...cacheParams });
 
         // Check memory cache first
@@ -108,11 +109,11 @@ export class FileApiService {
                 }
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.errorMessage || `HTTP ${response.status}: ${response.statusText}`);
+                    const errorData = await response.json().catch(() => ({})) as any;
+                    throw new Error((errorData as any).errorMessage || `HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                const data = await response.json();
+                const data = await response.json() as any;
 
                 // Cache the successful response
                 this.setCacheItem(cacheKey, data, config.ttl);
@@ -122,7 +123,7 @@ export class FileApiService {
                 // On network error, try to return stale cache if available
                 const staleData = this.cache.get(cacheKey);
                 if (staleData) {
-                    console.warn(`Network error, using stale cache for ${cacheKey}:`, error.message);
+                    console.warn(`Network error, using stale cache for ${cacheKey}:`, (error as Error).message);
                     return staleData;
                 }
                 throw error;
@@ -131,7 +132,7 @@ export class FileApiService {
     }
 
     // Cache invalidation methods with debouncing
-    invalidateCache(pattern) {
+    invalidateCache(pattern: string): void {
         // Prevent duplicate invalidations for the same pattern
         if (this.invalidationQueue.has(pattern)) {
             return;
@@ -146,7 +147,7 @@ export class FileApiService {
         }
 
         // Debounce invalidation to prevent excessive cache clearing
-        const timer = setTimeout(() => {
+        const timer = window.setTimeout(() => {
             this.performCacheInvalidation(pattern);
             this.invalidationQueue.delete(pattern);
             this.invalidationTimers.delete(pattern);
@@ -156,8 +157,8 @@ export class FileApiService {
     }
 
     // Perform the actual cache invalidation
-    performCacheInvalidation(pattern) {
-        const keysToDelete = [];
+    private performCacheInvalidation(pattern: string): void {
+        const keysToDelete: string[] = [];
         for (const key of this.cache.keys()) {
             if (key.includes(pattern)) {
                 keysToDelete.push(key);
@@ -169,14 +170,14 @@ export class FileApiService {
         });
     }
 
-    clearCache() {
+    clearCache(): void {
         this.cache.clear();
         this.cacheExpiration.clear();
         this.cachedDefaultPath = null;
     }
 
     // Get cache statistics for debugging
-    getCacheStats() {
+    getCacheStats(): CacheStats {
         const total = this.cache.size;
         const expired = Array.from(this.cache.keys()).filter(key => this.isExpired(key)).length;
         const pending = this.pendingRequests.size;
@@ -195,10 +196,10 @@ export class FileApiService {
     }
     
     // Get the server's configured default/base path with advanced caching
-    async getDefaultPath() {
+    async getDefaultPath(): Promise<string> {
         // Check legacy cache first for backward compatibility
         if (this.cachedDefaultPath) {
-            return this.cachedDefaultPath;
+            return this.cachedDefaultPath ?? '';
         }
 
         try {
@@ -206,10 +207,10 @@ export class FileApiService {
             const data = await this.cachedFetch(url, 'defaultPath');
 
             // Update legacy cache for backward compatibility
-            this.cachedDefaultPath = data.defaultPath;
-            return this.cachedDefaultPath;
+            this.cachedDefaultPath = (data as any).defaultPath;
+            return this.cachedDefaultPath !== null ? this.cachedDefaultPath : '';
         } catch (error) {
-            console.warn('Failed to get default path from server, using fallback:', error.message);
+            console.warn('Failed to get default path from server, using fallback:', (error as Error).message);
 
             // Fallback if server doesn't support the endpoint - use allowed base path
             this.cachedDefaultPath = '/Users/joshuadell/dev';
@@ -218,7 +219,7 @@ export class FileApiService {
     }
     
     // Fetch files and directories for the specified path with intelligent caching
-    async getFiles(directoryPath = null) {
+    async getFiles(directoryPath: string | null = null): Promise<FileListResponse> {
         try {
             // Get default path from server if none provided
             const pathToUse = directoryPath || await this.getDefaultPath();
@@ -228,13 +229,13 @@ export class FileApiService {
             const data = await this.cachedFetch(url, 'fileList', { path: pathToUse });
 
             return data;
-        } catch (error) {
+        } catch (error: any) {
             throw new Error(`Error fetching files: ${error.message}`);
         }
     }
 
     // Search for files matching the term in the specified directory with caching
-    async searchFiles(directoryPath, searchTerm, includeSubdirectories = true) {
+    async searchFiles(directoryPath: string, searchTerm: string, includeSubdirectories: boolean = true): Promise<SearchResponse> {
         try {
             const url = `${this.baseUrl}/api/files/search?path=${encodeURIComponent(directoryPath)}&term=${encodeURIComponent(searchTerm)}&includeSubdirectories=${includeSubdirectories}`;
 
@@ -246,19 +247,19 @@ export class FileApiService {
             });
 
             return data;
-        } catch (error) {
+        } catch (error: any) {
             throw new Error(`Error searching files: ${error.message}`);
         }
     }
 
     // Initiate file download by opening in new tab
-    downloadFile(filePath) {
+    downloadFile(filePath: string): void {
         const url = `${this.baseUrl}/api/files/download?path=${encodeURIComponent(filePath)}`;
         window.open(url, '_blank');
     }
 
     // Upload a file to the specified directory with cache invalidation and idempotency
-    async uploadFile(directoryPath, file, idempotencyKey) {
+    async uploadFile(directoryPath: string, file: File, idempotencyKey?: string): Promise<any> {
         // Create idempotency key based on file characteristics and destination
         const key = idempotencyKey || `upload:${directoryPath}:${file.name}:${file.size}:${file.lastModified}`;
 
@@ -273,23 +274,25 @@ export class FileApiService {
                 body: formData
             });
 
-            const data = await response.json();
+            const data = await response.json() as any;
             if (!response.ok) {
                 throw new Error(data.errorMessage || 'Failed to upload file');
             }
 
             // Invalidate cache for the affected directory
-            this.invalidateCache(`fileList:*path:${directoryPath}`);
+            if (directoryPath) {
+                this.invalidateCache(`fileList:*path:${directoryPath}`);
+            }
 
             return data;
         } catch (error) {
-            throw new Error(`Error uploading file: ${error.message}`);
+            throw new Error(`Error uploading file: ${(error as Error).message}`);
         }
         });
     }
 
     // Copy a file from source to destination path with cache invalidation and idempotency
-    async copyFile(sourcePath, destinationPath, idempotencyKey) {
+    async copyFile(sourcePath: string, destinationPath: string, idempotencyKey?: string): Promise<any> {
         // Create idempotency key based on source and destination paths
         const key = idempotencyKey || `copy:${sourcePath}:${destinationPath}`;
 
@@ -300,7 +303,7 @@ export class FileApiService {
                 method: 'POST'
             });
 
-            const data = await response.json();
+            const data = await response.json() as any;
             if (!response.ok) {
                 throw new Error(data.errorMessage || 'Failed to copy file');
             }
@@ -313,13 +316,13 @@ export class FileApiService {
 
             return data;
         } catch (error) {
-            throw new Error(`Error copying file: ${error.message}`);
+            throw new Error(`Error copying file: ${(error as Error).message}`);
         }
         });
     }
 
     // Move a file from source to destination path with cache invalidation and idempotency
-    async moveFile(sourcePath, destinationPath, idempotencyKey) {
+    async moveFile(sourcePath: string, destinationPath: string, idempotencyKey?: string): Promise<any> {
         // Create idempotency key based on source and destination paths
         const key = idempotencyKey || `move:${sourcePath}:${destinationPath}`;
 
@@ -330,7 +333,7 @@ export class FileApiService {
                 method: 'POST'
             });
 
-            const data = await response.json();
+            const data = await response.json() as any;
             if (!response.ok) {
                 throw new Error(data.errorMessage || 'Failed to move file');
             }
@@ -348,7 +351,7 @@ export class FileApiService {
 
             return data;
         } catch (error) {
-            throw new Error(`Error moving file: ${error.message}`);
+            throw new Error(`Error moving file: ${(error as Error).message}`);
         }
         });
     }
@@ -356,18 +359,20 @@ export class FileApiService {
     // Additional utility methods for advanced usage
 
     // Force refresh a specific directory's cache with idempotency
-    async refreshDirectory(directoryPath, idempotencyKey) {
+    async refreshDirectory(directoryPath: string | null, idempotencyKey?: string): Promise<FileListResponse> {
         // Create idempotency key for refresh operations
         const key = idempotencyKey || `refresh:${directoryPath || 'default'}:${Date.now()}`;
 
         return this.withRequestDeduplication(key, async () => {
-            this.invalidateCache(`fileList:*path:${directoryPath}`);
+            if (directoryPath) {
+                this.invalidateCache(`fileList:*path:${directoryPath}`);
+            }
             return this.getFiles(directoryPath);
         });
     }
 
     // Preload a directory for faster navigation with idempotency
-    async preloadDirectory(directoryPath, idempotencyKey) {
+    async preloadDirectory(directoryPath: string | null, idempotencyKey?: string): Promise<void> {
         // Create idempotency key for preload operations
         const key = idempotencyKey || `preload:${directoryPath || 'default'}`;
 
@@ -385,7 +390,7 @@ export class FileApiService {
     }
 
     // Get performance metrics for monitoring
-    getPerformanceMetrics() {
+    getPerformanceMetrics(): PerformanceMetrics {
         const cacheStats = this.getCacheStats();
         const hitRate = cacheStats.total > 0 ? ((cacheStats.total - cacheStats.expired) / cacheStats.total * 100).toFixed(1) : 0;
 
